@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-export async function POST(req: Request) {
+export async function POST() {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -14,19 +14,22 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return NextResponse.redirect("/login");
-
-  const form = await req.formData();
-  const priceId = form.get("priceId") as string;
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
 
   const session = await stripe.checkout.sessions.create({
+    customer: user.user_metadata.stripe_customer_id,
     mode: "subscription",
-    customer_creation: "always",
-    client_reference_id: user.id,
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: "http://localhost:3000/dashboard",
-    cancel_url: "http://localhost:3000/pricing",
+    line_items: [
+      {
+        price: process.env.STRIPE_PRICE_ID!,
+        quantity: 1,
+      },
+    ],
+    success_url: "https://your-domain.com/success",
+    cancel_url: "https://your-domain.com/cancel",
   });
 
-  return NextResponse.redirect(session.url!);
+  return NextResponse.json({ url: session.url });
 }

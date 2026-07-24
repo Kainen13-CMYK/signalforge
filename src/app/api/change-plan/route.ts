@@ -4,7 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
+  const { newPriceId } = await request.json();
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -14,25 +16,15 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return NextResponse.redirect("/login");
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
 
-  const form = await req.formData();
-  const newPriceId = form.get("priceId") as string;
+  const subscriptionId = user.user_metadata.stripe_subscription_id;
 
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("stripe_subscription_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const updated = await stripe.subscriptions.update(sub.stripe_subscription_id, {
-    items: [
-      {
-        price: newPriceId,
-      },
-    ],
-    proration_behavior: "create_prorations",
+  await stripe.subscriptions.update(subscriptionId, {
+    items: [{ price: newPriceId }],
   });
 
-  return NextResponse.json({ updated });
+  return NextResponse.json({ message: "Plan updated successfully" });
 }
