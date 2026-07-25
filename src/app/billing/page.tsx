@@ -1,35 +1,18 @@
 export default function BillingPage() {
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Manage Your Subscription</h1>
-      <p>Update your plan, payment method, or cancel your subscription.</p>
+    <div className="p-8">
+      <h1 className="text-2xl font-bold mb-4">Manage Your Subscription</h1>
+
+      <p className="mb-4">
+        Use the link below to open your Stripe billing portal and manage your
+        subscription, payment method, or invoices.
+      </p>
 
       <a
         href="/api/create-portal-session"
-        style={{
-          marginTop: "1rem",
-          display: "inline-block",
-          padding: "0.75rem 1.5rem",
-          backgroundColor: "#000",
-          color: "#fff",
-          borderRadius: "6px",
-        }}
+        className="text-blue-600 underline"
       >
         Open Billing Portal
-      </a>
-
-      <a
-        href="/manage-plan"
-        style={{
-          marginTop: "1rem",
-          display: "inline-block",
-          padding: "0.75rem 1.5rem",
-          backgroundColor: "#444",
-          color: "#fff",
-          borderRadius: "6px",
-        }}
-      >
-        Change Plan
       </a>
     </div>
   );
