@@ -29,7 +29,7 @@ export async function GET() {
 
   const portal = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/billing`,
+    return_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`,
   });
 
   return NextResponse.redirect(portal.url);
