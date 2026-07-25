@@ -15,14 +15,22 @@ export async function GET() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return NextResponse.redirect("/login");
+  }
+
+  const customerId = user.user_metadata.stripe_customer_id;
+
+  if (!customerId) {
+    return NextResponse.json(
+      { error: "No Stripe customer ID found for this user." },
+      { status: 400 }
+    );
   }
 
   const portal = await stripe.billingPortal.sessions.create({
-    customer: user.user_metadata.stripe_customer_id,
-    return_url: "https://your-domain.com/billing",
+    customer: customerId,
+    return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/billing`,
   });
 
   return NextResponse.redirect(portal.url);
 }
-
