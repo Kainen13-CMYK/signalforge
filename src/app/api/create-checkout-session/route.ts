@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
         quantity: 1,
       },
     ],
-    success_url: "https://your-domain.com/success",
-    cancel_url: "https://your-domain.com/cancel",
+    success_url: "https://signalforges.net/success",
+    cancel_url: "https://signalforges.net/cancel",
   });
 
   return NextResponse.json({ url: session.url });
