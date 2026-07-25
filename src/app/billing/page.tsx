@@ -1,4 +1,4 @@
-export default function BillingPage() {
+export default function Billing() {
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-4">Manage Your Subscription</h1>
