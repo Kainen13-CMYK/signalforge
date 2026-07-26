@@ -1,57 +1,79 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2026-06-24.dahlia",
 });
 
-
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    // Initialize Supabase client
+    // Supabase client (server-side)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // Get the authenticated user
+    // Get authenticated user
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Not authenticated" },
+        { status: 401 }
+      );
     }
 
-    // Parse request body for new plan price ID
-    const { newPriceId } = await request.json();
+    // Parse incoming body
+    const { newPriceId } = await req.json();
 
     if (!newPriceId) {
-      return NextResponse.json({ error: "Missing newPriceId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing newPriceId" },
+        { status: 400 }
+      );
     }
 
-    // Retrieve current subscription
+    // Get subscription ID from user metadata
     const subscriptionId = user.user_metadata.stripe_subscription_id;
+
+    if (!subscriptionId) {
+      return NextResponse.json(
+        { error: "User has no subscription" },
+        { status: 400 }
+      );
+    }
+
+    // Retrieve subscription
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-    // Update subscription with new price
-    await stripe.subscriptions.update(subscription.id, {
-      items: [
-        {
-          id: subscription.items.data[0].id,
-          price: newPriceId,
-        },
-      ],
-    });
+    // Update subscription to new price
+    const updatedSubscription = await stripe.subscriptions.update(
+      subscription.id,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      }
+    );
 
-    return NextResponse.json({ message: "Plan updated successfully" });
+    return NextResponse.json({
+      message: "Plan changed successfully",
+      subscription: updatedSubscription,
+    });
   } catch (error: any) {
-    console.error("Error updating plan:", error);
+    console.error("Change plan error:", error);
     return NextResponse.json(
-      { error: "Failed to update plan", details: error.message },
+      { error: error.message ?? "Unknown error" },
       { status: 500 }
     );
   }
 }
+
