@@ -3,38 +3,28 @@ import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (key) => req.cookies.get(key)?.value,
-        set: (key, value) => {
-          const res = NextResponse.next();
-          res.cookies.set(key, value);
-          return res;
+        get(name: string) {
+          return req.cookies.get(name)?.value;
         },
-        remove: (key) => {
-          const res = NextResponse.next();
-          res.cookies.delete(key);
-          return res;
+        set(name: string, value: string) {
+          res.cookies.set(name, value);
+        },
+        remove(name: string) {
+          res.cookies.delete(name);
         },
       },
     }
   );
 
-  // Example: check if user is logged in
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Example: refresh session if needed
+  await supabase.auth.getSession();
 
-  if (!user) {
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-
-  return NextResponse.next();
+  return res;
 }
-
-export const config = {
-  matcher: ["/dashboard/:path*", "/app/:path*"],
-};
