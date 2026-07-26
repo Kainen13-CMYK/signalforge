@@ -5,88 +5,54 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2026-06-24.dahlia",
 });
 
-type ManagePlanAction =
-  | "upgrade"
-  | "downgrade"
-  | "cancel"
-  | "resume";
-
-interface ManagePlanBody {
-  action: ManagePlanAction;
-  subscriptionId: string;
-  customerId: string;
-  priceId?: string; // required for upgrade/downgrade
-}
-
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as ManagePlanBody;
-    const { action, subscriptionId, customerId, priceId } = body;
+    const { customerId, newPriceId } = await req.json();
 
-    if (!action || !subscriptionId || !customerId) {
+    if (!customerId || !newPriceId) {
       return NextResponse.json(
-        { error: "Missing required fields: action, subscriptionId, customerId" },
+        { error: "Missing customerId or newPriceId" },
         { status: 400 }
       );
     }
 
-    let updatedSubscription: Stripe.Subscription | null = null;
+    // Get the customer's active subscription
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "active",
+      limit: 1,
+    });
 
-    switch (action) {
-      case "upgrade":
-      case "downgrade": {
-        if (!priceId) {
-          return NextResponse.json(
-            { error: "priceId is required for plan changes" },
-            { status: 400 }
-          );
-        }
-
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        const currentItem = subscription.items.data[0];
-
-        updatedSubscription = await stripe.subscriptions.update(subscriptionId, {
-          items: [
-            {
-              id: currentItem.id,
-              price: priceId,
-            },
-          ],
-          proration_behavior: "create_prorations",
-        });
-
-        break;
-      }
-
-      case "cancel": {
-        updatedSubscription = await stripe.subscriptions.cancel(subscriptionId);
-        break;
-      }
-
-      case "resume": {
-        updatedSubscription = await stripe.subscriptions.update(subscriptionId, {
-          cancel_at_period_end: false,
-        });
-        break;
-      }
-
-      default:
-        return NextResponse.json(
-          { error: `Unsupported action: ${action}` },
-          { status: 400 }
-        );
+    if (subscriptions.data.length === 0) {
+      return NextResponse.json(
+        { error: "No active subscription found" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      action,
-      subscription: updatedSubscription,
-    });
+    const subscription = subscriptions.data[0];
+
+    // Update the subscription to the new price
+    const updatedSubscription = await stripe.subscriptions.update(
+      subscription.id,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      }
+    );
+
+    return NextResponse.json({ subscription: updatedSubscription });
   } catch (error: any) {
-    console.error("manage-plan error:", error);
+    console.error("Manage plan error:", error);
     return NextResponse.json(
       { error: error.message ?? "Unknown error" },
       { status: 500 }
     );
   }
 }
+

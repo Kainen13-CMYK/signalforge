@@ -2,36 +2,45 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20",
+});
 
-export async function GET() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+export async function POST(request: Request) {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.redirect("/login");
-  }
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
 
-  const customerId = user.user_metadata.stripe_customer_id;
+    const session = await stripe.checkout.sessions.create({
+      customer: user.user_metadata.stripe_customer_id,
+      mode: "subscription",
+      line_items: [
+        {
+          price: process.env.STRIPE_PRICE_ID!,
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success`,
+      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/cancel`,
+    });
 
-  if (!customerId) {
+    return NextResponse.json({ url: session.url });
+  } catch (error: any) {
+    console.error("Error creating checkout session:", error);
     return NextResponse.json(
-      { error: "No Stripe customer ID found for this user." },
-      { status: 400 }
+      { error: "Failed to create checkout session", details: error.message },
+      { status: 500 }
     );
   }
-
-  const portal = await stripe.billingPortal.sessions.create({
-    customer: customerId,
-    return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/billing`,
-  });
-
-  return NextResponse.redirect(portal.url);
 }
-
