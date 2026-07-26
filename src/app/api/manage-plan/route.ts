@@ -1,62 +1,58 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: "2026-06-24.dahlia",
 });
 
-export async function GET() {
+export async function POST(req: NextRequest) {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const { customerId, newPriceId } = await req.json();
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/login`);
-    }
-
-    const cu    }
-
-    // Return subscription details
-    const activeSub = subscriptions.data[0];
-    return NextResponse.json({
-      plan: activeSub.items.data[0].price.nickname,
-      product: activeSub.items.data[0].price.product,
-      current_period_end: activeSub.current_period_end,
-    });
-  } catch (error: any) {
-    console.error("Error retrieving plan:", error);
-    return NextResponse.json(
-      { error: "Failed to retrieve plan", details: error.message },
-      { status: 500 }
-    );stomerId = user.user_metadata?.stripe_customer_id;
-
-    if (!customerId) {
+    if (!customerId || !newPriceId) {
       return NextResponse.json(
-        { error: "No Stripe customer ID found for this user." },
+        { error: "Missing customerId or newPriceId" },
         { status: 400 }
       );
     }
 
-    // Retrieve the customer’s active subscriptions
+    // Get the customer's active subscription
     const subscriptions = await stripe.subscriptions.list({
       customer: customerId,
       status: "active",
-      expand: ["data.items.price.product"],
+      limit: 1,
     });
 
-    if (!subscriptions.data.length) {
+    if (subscriptions.data.length === 0) {
       return NextResponse.json(
-        { message: "No active subscriptions found." },
+        { error: "No active subscription found" },
         { status: 404 }
       );
+    }
 
+    const subscription = subscriptions.data[0];
+
+    // Update the subscription to the new price
+    const updatedSubscription = await stripe.subscriptions.update(
+      subscription.id,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: newPriceId,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      }
+    );
+
+    return NextResponse.json({ subscription: updatedSubscription });
+  } catch (error: any) {
+    console.error("Manage plan error:", error);
+    return NextResponse.json(
+      { error: error.message ?? "Unknown error" },
+      { status: 500 }
+    );
   }
 }
+

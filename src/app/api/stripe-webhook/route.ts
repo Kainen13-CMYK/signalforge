@@ -1,77 +1,66 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16",
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: "2026-06-24.dahlia",
 });
 
-function buffer(readable: any) {
-  return new Promise((resolve, reject) => {
-    const chunks: any[] = [];
-    readable.on("data", (chunk: any) => chunks.push(chunk));
-    readable.on("end", () => resolve(Buffer.concat(chunks)));
-    readable.on("error", reject);
-  });
-}
+export async function POST(req: NextRequest) {
+  const signature = req.headers.get("stripe-signature");
+  const rawBody: string = await req.text();
 
-export async function POST(req: Request) {
-  const rawBody = await buffer(req.body);
-  const sig = req.headers.get("stripe-signature");
-
-  let event;
+  let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(
       rawBody,
-      sig!,
+      signature!,
       process.env.STRIPE_WEBHOOK_SECRET!
     );
   } catch (err: any) {
-    return NextResponse.json({ error: `Webhook error: ${err.message}` }, { status: 400 });
+    console.error("❌ Webhook signature verification failed:", err.message);
+    return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log("Checkout completed:", session.id);
+        break;
+      }
 
-  // Handle subscription events
-  if (event.type === "customer.subscription.created" ||
-      event.type === "customer.subscription.updated") {
+      case "customer.subscription.created": {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log("Subscription created:", subscription.id);
+        break;
+      }
 
-    const subscription = event.data.object;
+      case "customer.subscription.updated": {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log("Subscription updated:", subscription.id);
+        break;
+      }
 
-    const userId = subscription.metadata.user_id;
-    const plan = subscription.metadata.plan;
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log("Subscription canceled:", subscription.id);
+        break;
+      }
 
-    await supabase
-      .from("profiles")
-      .update({
-        plan,
-        subscription_id: subscription.id,
-      })
-      .eq("id", userId);
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
+    }
+  } catch (err: any) {
+    console.error("❌ Error processing webhook event:", err.message);
+    return NextResponse.json(
+      { error: err.message ?? "Unknown webhook processing error" },
+      { status: 500 }
+    );
   }
 
-  if (event.type === "customer.subscription.deleted") {
-    const subscription = event.data.object;
-    const userId = subscription.metadata.user_id;
-
-    await supabase
-      .from("profiles")
-      .update({
-        plan: "free",
-        subscription_id: null,
-      })
-      .eq("id", userId);
-  }
-
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true }, { status: 200 });
 }
