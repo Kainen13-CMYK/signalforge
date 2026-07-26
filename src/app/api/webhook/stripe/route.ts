@@ -1,32 +1,52 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
-export async function POST(request: Request) {
-  const body = await request.text();
-  const sig = request.headers.get("stripe-signature");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2023-10-16",
+});
 
-  let event: Stripe.Event;
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
+  const signature = req.headers.get("stripe-signature");
+
+  let event;
 
   try {
-    event = stripe.webhooks.constructEvent(body, sig!, endpointSecret);
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature!,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
   } catch (err: any) {
-    return NextResponse.json({ error: `Webhook Error: ${err.message}` }, { status: 400 });
+    return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
   }
 
   switch (event.type) {
+    case "checkout.session.completed":
+      console.log("Checkout completed");
+      break;
+
+    case "customer.subscription.created":
+      console.log("Subscription created");
+      break;
+
     case "customer.subscription.updated":
-      // handle subscription update
+      console.log("Subscription updated");
       break;
+
     case "customer.subscription.deleted":
-      // handle cancellation
+      console.log("Subscription deleted");
       break;
+
     default:
-      console.log(`Unhandled event type ${event.type}`);
+      console.log(`Unhandled event type: ${event.type}`);
   }
 
   return NextResponse.json({ received: true });
 }
-
