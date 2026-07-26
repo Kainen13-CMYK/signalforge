@@ -1,66 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2026-06-24.dahlia",
 });
 
 export async function POST(req: NextRequest) {
-  const signature = req.headers.get("stripe-signature");
-  const rawBody: string = await req.text();
-
-  let event: Stripe.Event;
-
   try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature!,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
-  } catch (err: any) {
-    console.error("❌ Webhook signature verification failed:", err.message);
-    return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
-  }
+    const rawBody = await req.text();
+    const sig = req.headers.get("stripe-signature");
 
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        console.log("Checkout completed:", session.id);
-        break;
-      }
-
-      case "customer.subscription.created": {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log("Subscription created:", subscription.id);
-        break;
-      }
-
-      case "customer.subscription.updated": {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log("Subscription updated:", subscription.id);
-        break;
-      }
-
-      case "customer.subscription.deleted": {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log("Subscription canceled:", subscription.id);
-        break;
-      }
-
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
+    if (!sig) {
+      return NextResponse.json({ error: "Missing Stripe signature" }, { status: 400 });
     }
-  } catch (err: any) {
-    console.error("❌ Error processing webhook event:", err.message);
-    return NextResponse.json(
-      { error: err.message ?? "Unknown webhook processing error" },
-      { status: 500 }
-    );
-  }
 
-  return NextResponse.json({ received: true }, { status: 200 });
+    const event = stripe.webhooks.constructEvent(
+      rawBody,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET as string
+    );
+
+    // Handle subscription events
+    if (event.type === "customer.subscription.updated") {
+      const subscription = event.data.object;
+
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      await supabase
+        .from("profiles")
+        .update({
+          stripe_price_id: subscription.items.data[0].price.id,
+        })
+        .eq("stripe_customer_id", subscription.customer);
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (err: any) {
+    console.error("Webhook error:", err);
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
 }
