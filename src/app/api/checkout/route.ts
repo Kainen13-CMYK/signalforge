@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: "2026-06-24.dahlia",
+});
+
 export async function POST(req: NextRequest) {
   try {
     const { priceId, userId } = await req.json();
@@ -12,22 +16,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/checkout/success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/checkout/cancel`,
+      success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/checkout/canceled`,
       metadata: { userId },
     });
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
-    console.error("Error creating checkout session:", error);
+    console.error("Checkout error:", error);
     return NextResponse.json(
-      { error: "Failed to create checkout session", details: error.message },
+      { error: error.message ?? "Unknown error" },
       { status: 500 }
     );
   }
 }
-
