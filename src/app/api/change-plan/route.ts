@@ -11,7 +11,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Extract Bearer token
+    // 1. Extract Bearer token from request headers
     const token = req.headers.get("Authorization")?.replace("Bearer ", "");
     if (!token) {
       return NextResponse.json({ error: "Missing auth token" }, { status: 401 });
@@ -46,16 +46,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing newPriceId" }, { status: 400 });
     }
 
-    // 5. Get subscription ID
+    // 5. Get subscription ID from user metadata
     const subscriptionId = user.user_metadata.stripe_subscription_id;
     if (!subscriptionId) {
       return NextResponse.json({ error: "User has no subscription" }, { status: 400 });
     }
 
-    // 6. Retrieve subscription
+    // 6. Retrieve subscription from Stripe
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
-    // 7. Update subscription
+    // 7. Update subscription to new price
     const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
       proration_behavior: "create_prorations",
     });
 
+    // 8. Return success
     return NextResponse.json({
       message: "Plan changed successfully",
       subscription: updatedSubscription,
