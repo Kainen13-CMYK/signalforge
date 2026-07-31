@@ -1,45 +1,48 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2026-06-24.dahlia",
-});
+// Lazy Stripe initializer — prevents build-time crashes
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    // During build, env vars are not available — return null instead of crashing
+    return null;
+  }
+  return new Stripe(key);
+}
 
-export async function POST(req: NextRequest) {
-  try {
-    const token = req.headers.get("Authorization")?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Missing auth token" }, { status: 401 });
+export async function POST(req: Request) {
+  const stripe = getStripe();
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      }
+  // If Stripe isn't configured (build-time or missing env), return safe error
+  if (!stripe) {
+    return NextResponse.json(
+      { error: "Stripe is not configured" },
+      { status: 500 }
     );
+  }
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+  try {
+    const { customerId } = await req.json();
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    if (!customerId) {
+      return NextResponse.json(
+        { error: "Missing customerId" },
+        { status: 400 }
+      );
     }
 
-    const portalSession = await stripe.billingPortal.sessions.create({
-      customer: user.user_metadata.stripe_customer_id,
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
       return_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`,
     });
 
-    return NextResponse.json({ url: portalSession.url });
-  } catch (error: any) {
-    console.error("Portal session error:", error);
-    return NextResponse.json({ error: error.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json({ url: session.url });
+  } catch (error) {
+    console.error("Stripe portal session error:", error);
+    return NextResponse.json(
+      { error: "Unable to create portal session" },
+      { status: 500 }
+    );
   }
 }

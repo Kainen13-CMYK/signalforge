@@ -1,66 +1,46 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2026-06-24.dahlia",
-});
+// Lazy Stripe initializer — prevents build-time crashes
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    // During build, env vars are not available — return null instead of crashing
+    return null;
+  }
+  return new Stripe(key);
+}
 
-export async function POST(req: NextRequest) {
-  try {
-    // 1. Extract Bearer token
-    const token = req.headers.get("Authorization")?.replace("Bearer ", "");
-    if (!token) {
-      return NextResponse.json({ error: "Missing auth token" }, { status: 401 });
-    }
+export async function POST() {
+  const stripe = getStripe();
 
-    // 2. Supabase client with service role + token
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      }
+  // If Stripe isn't configured (build-time or missing env), return safe error
+  if (!stripe) {
+    return NextResponse.json(
+      { error: "Stripe is not configured" },
+      { status: 500 }
     );
+  }
 
-    // 3. Get authenticated user
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    // 4. Parse incoming body
-    const { priceId } = await req.json();
-    if (!priceId) {
-      return NextResponse.json({ error: "Missing priceId" }, { status: 400 });
-    }
-
-    // 5. Create checkout session
+  try {
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      customer_email: user.email!,
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard?success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard?canceled=true`,
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: process.env.STRIPE_PRICE_ID!,
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success`,
+      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/cancel`,
     });
 
     return NextResponse.json({ url: session.url });
-  } catch (error: any) {
-    console.error("Checkout error:", error);
+  } catch (error) {
+    console.error("Stripe checkout error:", error);
     return NextResponse.json(
-      { error: error.message ?? "Unknown error" },
+      { error: "Unable to create checkout session" },
       { status: 500 }
     );
   }

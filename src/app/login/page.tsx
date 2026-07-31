@@ -1,14 +1,47 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
+import { useState } from "react";
+import { getSupabaseBrowserClient } from "../../lib/supabase-browser";
 
-export const supabaseBrowserClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-    },
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (!supabase) {
+      alert("Supabase is not configured");
+      return;
+    }
+
+    await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${location.origin}/dashboard`,
+      },
+    });
+
+    alert("Magic link sent! Check your email.");
   }
-);
+
+  return (
+    <main style={{ padding: "2rem" }}>
+      <h1>Login</h1>
+
+      <form onSubmit={handleLogin}>
+        <input
+          type="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+
+        <button type="submit">Send Magic Link</button>
+      </form>
+    </main>
+  );
+}
+

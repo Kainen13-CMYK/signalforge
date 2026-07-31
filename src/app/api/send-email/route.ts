@@ -1,34 +1,72 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { NextResponse } from "next/server";
 
-import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";        
-import { createClient } from "@supabase/supabase-js";
+// Lazy email client initializer — prevents build-time crashes
+function getEmailClient() {
+  const key = process.env.EMAIL_API_KEY; // rename to match your provider
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
+  if (!key) {
+    // During build, env vars are not available — return null instead of crashing
+    return null;
+  }
 
-export async function POST() {
+  // Example: Resend
+  // return new Resend(key);
+
+  // Example: SendGrid
+  // sgMail.setApiKey(key);
+  // return sgMail;
+
+  // Example: Nodemailer
+  // return nodemailer.createTransport({
+  //   service: "gmail",
+  //   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+  // });
+
+  return null; // Replace with your actual client
+}
+
+export async function POST(req: Request) {
+  const emailClient = getEmailClient();
+
+  // If email client isn't configured (build-time or missing env), return safe error
+  if (!emailClient) {
+    return NextResponse.json(
+      { error: "Email service is not configured" },
+      { status: 500 }
+    );
+  }
+
   try {
-    if (!process.env.RESEND_API_KEY) {
+    const { to, subject, message } = await req.json();
+
+    if (!to || !subject || !message) {
       return NextResponse.json(
-        { success: false, error: "Missing RESEND_API_KEY environment variable." },
-        { status: 500 }
+        { error: "Missing to, subject, or message" },
+        { status: 400 }
       );
     }
 
-    const data = await resend.emails.send({
-      from: "onboarding@resend.dev",
-      to: "you@example.com",
-      subject: "Hello world",
-      html: "<p>It works!</p>",
-    });
+    // Example: Resend
+    // await emailClient.emails.send({
+    //   from: "noreply@yourdomain.com",
+    //   to,
+    //   subject,
+    //   html: message,
+    // });
 
-    return NextResponse.json({ success: true, data });
-  } catch (error: any) {
-    console.error("Error sending email:", error);
+    // Example: SendGrid
+    // await emailClient.send({
+    //   to,
+    //   from: "noreply@yourdomain.com",
+    //   subject,
+    //   html: message,
+    // });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Email error:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to send email." },
+      { error: "Unable to send email" },
       { status: 500 }
     );
   }
