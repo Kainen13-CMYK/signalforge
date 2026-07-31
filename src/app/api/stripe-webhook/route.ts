@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Webhook error: ${err.message}` }, { status: 400 });
   }
 
-  // Supabase server client (NO auth headers)
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
