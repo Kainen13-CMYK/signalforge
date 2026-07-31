@@ -1,39 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { supabaseBrowserClient } from "../../lib/supabase-browser";
+import { createClient } from "@supabase/supabase-js";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-
-    await supabaseBrowserClient.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${location.origin}/dashboard`,
-      },
-    });
-
-    alert("Magic link sent! Check your email.");
+export const supabaseBrowserClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+    },
   }
-
-  return (
-    <main style={{ padding: "2rem" }}>
-      <h1>Login</h1>
-
-      <form onSubmit={handleLogin}>
-        <input
-          type="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-
-        <button type="submit">Send Magic Link</button>
-      </form>
-    </main>
-  );
-}
+);
