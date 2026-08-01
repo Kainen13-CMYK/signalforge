@@ -1,40 +1,32 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 
-// Prevent Next.js from trying to parse the body
+// Required for Stripe signature verification
 export const config = {
   api: {
     bodyParser: false,
   },
 };
 
-// Lazy Stripe initializer — prevents build-time crashes
-function getStripe() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) {
-    // During build, env vars are not available — return null instead of crashing
-    return null;
-  }
-  return new Stripe(key);
-}
+// Initialize Stripe safely
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2026-06-24.dahlia",
+});
+
+// Supabase client using service role key (needed for secure writes)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
-  const stripe = getStripe();
-
-  // If Stripe isn't configured (build-time or missing env), return safe error
-  if (!stripe) {
-    return NextResponse.json(
-      { error: "Stripe is not configured" },
-      { status: 500 }
-    );
-  }
-
   const sig = req.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!sig || !webhookSecret) {
     return NextResponse.json(
-      { error: "Missing Stripe webhook signature or secret" },
+      { error: "Missing Stripe signature or webhook secret" },
       { status: 400 }
     );
   }
@@ -43,38 +35,63 @@ export async function POST(req: Request) {
 
   try {
     const rawBody = await req.text();
-
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err) {
-    console.error("Webhook signature verification failed:", err);
-    return NextResponse.json(
-      { error: "Invalid signature" },
-      { status: 400 }
-    );
+    console.error("❌ Invalid Stripe signature:", err);
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
   try {
-    // Handle events
     switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+
+        await supabase
+          .from("profiles")
+          .update({
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: session.subscription,
+            plan: session.metadata?.plan ?? null,
+          })
+          .eq("id", session.metadata?.user_id);
+
+        break;
+      }
+
       case "customer.subscription.created":
-        console.log("Subscription created:", event.data.object.id);
-        break;
+      case "customer.subscription.updated": {
+        const sub = event.data.object as Stripe.Subscription;
 
-      case "customer.subscription.updated":
-        console.log("Subscription updated:", event.data.object.id);
-        break;
+        await supabase
+          .from("profiles")
+          .update({
+            stripe_subscription_status: sub.status,
+          })
+          .eq("stripe_customer_id", sub.customer);
 
-      case "customer.subscription.deleted":
-        console.log("Subscription deleted:", event.data.object.id);
         break;
+      }
+
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+
+        await supabase
+          .from("profiles")
+          .update({
+            stripe_subscription_status: "canceled",
+          })
+          .eq("stripe_customer_id", sub.customer);
+
+        break;
+      }
 
       default:
-        console.log("Unhandled event type:", event.type);
+        console.log("⚠️ Unhandled event:", event.type);
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Webhook handler error:", error);
+    console.error("❌ Webhook processing error:", error);
     return NextResponse.json(
       { error: "Webhook processing failed" },
       { status: 500 }
